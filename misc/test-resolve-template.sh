@@ -14,7 +14,7 @@
 set -euo pipefail
 
 VERBOSE=${VERBOSE:-no}
-GITHUB_REPO=${GITHUB_REPO:-the-guong/debian-ifupdown2-lxc}
+GITHUB_REPO=${GITHUB_REPO:-asylumexp/debian-ifupdown2-lxc}
 MOCK_FILE=${MOCK_FILE:-}
 
 dbg() { [[ "$VERBOSE" == "yes" ]] && printf "[DEBUG] %s\n" "$*"; }

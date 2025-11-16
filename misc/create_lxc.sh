@@ -311,11 +311,11 @@ if [ "$PCT_OSTYPE" = "debian" ]; then
 elif [ "$PCT_OSTYPE" = "alpine" ]; then
   TEMPLATE_VARIANT=3.19
 else
-  if [ $PCT_OSVERSION = 20.04 ]; then
+  if [ "$PCT_OSVERSION" = 20.04 ]; then
     TEMPLATE_VARIANT=focal
-  elif [ $PCT_OSVERSION = 24.04 ]; then
+  elif [ "$PCT_OSVERSION" = 24.04 ]; then
     TEMPLATE_VARIANT=noble
-  elif [ $PCT_OSVERSION = 24.10 ]; then
+  elif [ "$PCT_OSVERSION" = 24.10 ]; then
     TEMPLATE_VARIANT=oracular
   else
     TEMPLATE_VARIANT=jammy
@@ -329,8 +329,11 @@ if [ -d "/var/lib/vz/template/cache" ]; then
   if [ ! -f "$TEMPLATE_PATH" ]; then
     if [ "$PCT_OSTYPE" = "debian" ]; then
       msg_info "Downloading LXC Template"
-      # Resolve URL from GitHub API (try multiple patterns)
-      release_json=$(curl -s https://api.github.com/repos/the-guong/debian-ifupdown2-lxc/releases/latest || true)
+  # Resolve URL from GitHub API (try multiple patterns)
+  # Allow overriding the GitHub repo via GITHUB_DEBIAN_REPO env var for maintainers
+  GITHUB_DEBIAN_REPO=${GITHUB_DEBIAN_REPO:-asylumexp/debian-ifupdown2-lxc}
+  dbg "Using GitHub repo for Debian templates: $GITHUB_DEBIAN_REPO"
+  release_json=$(curl -s "https://api.github.com/repos/${GITHUB_DEBIAN_REPO}/releases/latest" || true)
       # Prefer browser_download_url field and look for exact variant match first
       dl_url=$(printf "%s" "$release_json" | grep -E 'browser_download_url' | grep -Ei "debian-${TEMPLATE_VARIANT}.*arm64.*rootfs.*\\.(tar\\.xz|tar\\.gz|tar)" | cut -d\" -f4 || true)
       # Fallback: any debian-* arm64 rootfs asset
@@ -339,14 +342,32 @@ if [ -d "/var/lib/vz/template/cache" ]; then
       fi
       dbg "Resolved dl_url=$dl_url"
       if [[ -z "$dl_url" ]]; then
-        msg_error "Could not locate download URL for debian-$TEMPLATE_VARIANT-arm64-rootfs.tar.xz"
-        msg_error "Run with VERBOSE=yes for more debugging output."
-        if [[ "${VERBOSE:-no}" == "yes" ]]; then
-          echo "---- Release JSON (first 200 lines) ----"
-          printf "%s" "$release_json" | sed -n '1,200p'
-          echo "---- End Release JSON ----"
+        # Try Jenkins fallback (same style used for non-debian in other branch)
+        jenkins_url="https://jenkins.linuxcontainers.org/job/image-debian/architecture=arm64,release=$TEMPLATE_VARIANT,variant=default/lastStableBuild/artifact/rootfs.tar.xz"
+        dbg "No GitHub asset found; trying Jenkins fallback: $jenkins_url"
+        if command -v wget >/dev/null 2>&1; then
+          if wget --spider -q "$jenkins_url" >/dev/null 2>&1; then
+            dl_url="$jenkins_url"
+            dbg "Using Jenkins fallback dl_url=$dl_url"
+          fi
+        elif command -v curl >/dev/null 2>&1; then
+          if curl -sSfI "$jenkins_url" >/dev/null 2>&1; then
+            dl_url="$jenkins_url"
+            dbg "Using Jenkins fallback dl_url=$dl_url"
+          fi
         fi
-        exit 208
+
+        if [[ -z "$dl_url" ]]; then
+          msg_error "Could not locate download URL for debian-$TEMPLATE_VARIANT-arm64-rootfs.tar.xz"
+          msg_error "Run with VERBOSE=yes for more debugging output."
+          if [[ "${VERBOSE:-no}" == "yes" ]]; then
+            echo "---- Release JSON (first 200 lines) ----"
+            printf "%s" "$release_json" | sed -n '1,200p'
+            echo "---- End Release JSON ----"
+            echo "Tried Jenkins fallback: $jenkins_url"
+          fi
+          exit 208
+        fi
       fi
       dbg "Will download template to $TEMPLATE_PATH"
       if ! wget -q "$dl_url" -O "$TEMPLATE_PATH"; then
@@ -385,7 +406,7 @@ else
   TEMPLATE_PATH="$(pvesm path "${TEMPLATE_STORAGE}:vztmpl/${TEMPLATE}" 2>/dev/null || echo "/var/lib/vz/template/cache/${TEMPLATE}")"
 
   # Download LXC template if needed
-  if ! pveam list $TEMPLATE_STORAGE | grep -F $TEMPLATE > /dev/null; then
+  if ! pveam list "$TEMPLATE_STORAGE" | grep -F "$TEMPLATE" > /dev/null; then
     msg_info "Downloading LXC Template"
     if ! pveam download "$TEMPLATE_STORAGE" "$TEMPLATE" >/dev/null; then
       msg_error "A problem occurred while downloading the LXC template via pveam"
