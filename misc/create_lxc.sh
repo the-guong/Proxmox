@@ -329,12 +329,23 @@ if [ -d "/var/lib/vz/template/cache" ]; then
   if [ ! -f "$TEMPLATE_PATH" ]; then
     if [ "$PCT_OSTYPE" = "debian" ]; then
       msg_info "Downloading LXC Template"
-      # Resolve URL from GitHub API
-      dl_url=$(curl -s https://api.github.com/repos/the-guong/debian-ifupdown2-lxc/releases/latest | grep download | grep "debian-$TEMPLATE_VARIANT-arm64-rootfs.tar.xz" | cut -d\" -f4 || true)
+      # Resolve URL from GitHub API (try multiple patterns)
+      release_json=$(curl -s https://api.github.com/repos/the-guong/debian-ifupdown2-lxc/releases/latest || true)
+      # Prefer browser_download_url field and look for exact variant match first
+      dl_url=$(printf "%s" "$release_json" | grep -E 'browser_download_url' | grep -Ei "debian-${TEMPLATE_VARIANT}.*arm64.*rootfs.*\\.(tar\\.xz|tar\\.gz|tar)" | cut -d\" -f4 || true)
+      # Fallback: any debian-* arm64 rootfs asset
+      if [[ -z "$dl_url" ]]; then
+        dl_url=$(printf "%s" "$release_json" | grep -E 'browser_download_url' | grep -Ei "debian-.*arm64.*rootfs.*\\.(tar\\.xz|tar\\.gz|tar)" | cut -d\" -f4 || true)
+      fi
       dbg "Resolved dl_url=$dl_url"
       if [[ -z "$dl_url" ]]; then
         msg_error "Could not locate download URL for debian-$TEMPLATE_VARIANT-arm64-rootfs.tar.xz"
         msg_error "Run with VERBOSE=yes for more debugging output."
+        if [[ "${VERBOSE:-no}" == "yes" ]]; then
+          echo "---- Release JSON (first 200 lines) ----"
+          printf "%s" "$release_json" | sed -n '1,200p'
+          echo "---- End Release JSON ----"
+        fi
         exit 208
       fi
       dbg "Will download template to $TEMPLATE_PATH"
