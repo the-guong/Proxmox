@@ -24,6 +24,12 @@ trap on_exit EXIT
 trap on_interrupt INT
 trap on_terminate TERM
 
+# Simple debug printer that respects VERBOSE
+dbg() {
+  if [[ "${VERBOSE:-no}" == "yes" ]]; then
+    printf "\e[36m[DEBUG]\e[0m %s\n" "$*"
+  fi
+}
 function on_exit() {
   local exit_code="$?"
   [[ -n "${lockfile:-}" && -e "$lockfile" ]] && rm -f "$lockfile"
@@ -219,6 +225,19 @@ while true; do
   fi
 done
 
+TEMPLATE_SEARCH="${PCT_OSTYPE}-${PCT_OSVERSION:-}"
+dbg "TEMPLATE_SEARCH=$TEMPLATE_SEARCH"
+case "$PCT_OSTYPE" in
+debian | ubuntu)
+  TEMPLATE_PATTERN="-standard_"
+  ;;
+alpine | fedora | rocky | centos)
+  TEMPLATE_PATTERN="-default_"
+  ;;
+*)
+  TEMPLATE_PATTERN=""
+  ;;
+esac
 while true; do
   if select_storage container; then
     CONTAINER_STORAGE="$STORAGE_RESULT"
@@ -276,15 +295,20 @@ else
 fi
 
 # Get LXC template string
-if [ $PCT_OSTYPE = debian ]; then
-  if [ $PCT_OSVERSION = 11 ]; then
-    TEMPLATE_VARIANT=bullseye
-  elif [ $PCT_OSVERSION = 12 ]; then
-    TEMPLATE_VARIANT=bookworm
-	else
-		TEMPLATE_VARIANT=trixie
+if [ "$PCT_OSTYPE" = "debian" ]; then
+  # Normalize PCT_OSVERSION: accept numeric (11,12,13...) or codename (bookworm)
+  if [[ "$PCT_OSVERSION" =~ ^[0-9]+$ ]]; then
+    case "$PCT_OSVERSION" in
+    11) TEMPLATE_VARIANT=bullseye ;;
+    12) TEMPLATE_VARIANT=bookworm ;;
+    *) TEMPLATE_VARIANT=trixie ;;
+    esac
+  else
+    # If a codename was provided, use it directly (lowercase)
+    TEMPLATE_VARIANT=$(echo "$PCT_OSVERSION" | tr '[:upper:]' '[:lower:]')
   fi
-elif [ $PCT_OSTYPE = alpine ]; then
+  dbg "PCT_OSVERSION normalized to $TEMPLATE_VARIANT"
+elif [ "$PCT_OSTYPE" = "alpine" ]; then
   TEMPLATE_VARIANT=3.19
 else
   if [ $PCT_OSVERSION = 20.04 ]; then
@@ -303,14 +327,35 @@ if [ -d "/var/lib/vz/template/cache" ]; then
   TEMPLATE_PATH="$(pvesm path "${TEMPLATE_STORAGE}:vztmpl/${TEMPLATE}" 2>/dev/null || echo "/var/lib/vz/template/cache/${TEMPLATE}")"
   # Download template if needed
   if [ ! -f "$TEMPLATE_PATH" ]; then
-    if [ $PCT_OSTYPE = debian ]; then
+    if [ "$PCT_OSTYPE" = "debian" ]; then
       msg_info "Downloading LXC Template"
-      wget -q $(curl -s https://api.github.com/repos/the-guong/debian-ifupdown2-lxc/releases/latest | grep download | grep debian-$TEMPLATE_VARIANT-arm64-rootfs.tar.xz | cut -d\" -f4) -O "$TEMPLATE_PATH" -q || exit "A problem occurred while downloading the LXC template."
+      # Resolve URL from GitHub API
+      dl_url=$(curl -s https://api.github.com/repos/the-guong/debian-ifupdown2-lxc/releases/latest | grep download | grep "debian-$TEMPLATE_VARIANT-arm64-rootfs.tar.xz" | cut -d\" -f4 || true)
+      dbg "Resolved dl_url=$dl_url"
+      if [[ -z "$dl_url" ]]; then
+        msg_error "Could not locate download URL for debian-$TEMPLATE_VARIANT-arm64-rootfs.tar.xz"
+        msg_error "Run with VERBOSE=yes for more debugging output."
+        exit 208
+      fi
+      dbg "Will download template to $TEMPLATE_PATH"
+      if ! wget -q "$dl_url" -O "$TEMPLATE_PATH"; then
+        msg_error "A problem occurred while downloading the LXC template from $dl_url"
+        exit 208
+      fi
       msg_ok "Downloaded LXC Template"
     else
       templateurl="https://jenkins.linuxcontainers.org/job/image-$PCT_OSTYPE/architecture=arm64,release=$TEMPLATE_VARIANT,variant=default/lastStableBuild/artifact/rootfs.tar.xz"
       msg_info "Downloading LXC Template"
-      wget $templateurl -O "$TEMPLATE_PATH" -q || exit "A problem occurred while downloading the LXC template."
+      dbg "Computed templateurl=$templateurl"
+      if [[ -z "$templateurl" ]]; then
+        msg_error "Template URL is empty for $PCT_OSTYPE/$TEMPLATE_VARIANT"
+        exit 208
+      fi
+      dbg "Will download template to $TEMPLATE_PATH"
+      if ! wget -q "$templateurl" -O "$TEMPLATE_PATH"; then
+        msg_error "A problem occurred while downloading the LXC template from $templateurl"
+        exit 208
+      fi
       msg_ok "Downloaded LXC Template"
     fi
   fi
@@ -319,10 +364,10 @@ else
   msg_info "Updating LXC Template List"
   pveam update >/dev/null
   msg_ok "Updated LXC Template List"
-  if [ $PCT_OSTYPE = debian ]; then
+  if [ "$PCT_OSTYPE" = "debian" ]; then
     msg_error "Debian unsupported with this download method. Exiting."
-  elif [ $PCT_OSTYPE = alpine ]; then
-    $TEMPLATE_VARIANT = 3.18
+  elif [ "$PCT_OSTYPE" = "alpine" ]; then
+    TEMPLATE_VARIANT=3.18
   fi
 
   TEMPLATE="$(pveam available | grep -E "arm64.*$PCT_OSTYPE-$TEMPLATE_VARIANT" | sed 's/arm64[[:space:]]*//')"
@@ -331,8 +376,10 @@ else
   # Download LXC template if needed
   if ! pveam list $TEMPLATE_STORAGE | grep -F $TEMPLATE > /dev/null; then
     msg_info "Downloading LXC Template"
-    pveam download $TEMPLATE_STORAGE $TEMPLATE >/dev/null ||
-      exit "A problem occurred while downloading the LXC template."
+    if ! pveam download "$TEMPLATE_STORAGE" "$TEMPLATE" >/dev/null; then
+      msg_error "A problem occurred while downloading the LXC template via pveam"
+      exit 208
+    fi
     msg_ok "Downloaded LXC Template"
   fi
 fi
