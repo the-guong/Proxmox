@@ -1,0 +1,10 @@
+{
+    "assets": [
+        {
+            "browser_download_url": "https://example.com/debian-bookworm-arm64-rootfs.tar.xz"
+        },
+        {
+            "browser_download_url": "https://example.com/debian-bullseye-arm64-rootfs.tar.xz"
+        }
+    ]
+}
