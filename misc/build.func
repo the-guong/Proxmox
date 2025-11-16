@@ -1140,7 +1140,8 @@ build_container() {
   export ENABLE_FUSE="$ENABLE_FUSE"
   export ENABLE_TUN="$ENABLE_TUN"
   export PCT_OSTYPE="$var_os"
-  export PCT_OSVERSION="$var_version"
+  # Ensure os version doesn't contain accidental leading characters like a hyphen (e.g. -12)
+  export PCT_OSVERSION="${var_version#-}"
   export PCT_DISK_SIZE="$DISK_SIZE"
   export PCT_OPTIONS="
     -features $FEATURES
