@@ -331,7 +331,7 @@ if [ -d "/var/lib/vz/template/cache" ]; then
       msg_info "Downloading LXC Template"
   # Resolve URL from GitHub API (try multiple patterns)
   # Allow overriding the GitHub repo via GITHUB_DEBIAN_REPO env var for maintainers
-  GITHUB_DEBIAN_REPO=${GITHUB_DEBIAN_REPO:-asylumexp/debian-ifupdown2-lxc}
+  GITHUB_DEBIAN_REPO=${GITHUB_DEBIAN_REPO:-the-guong/debian-ifupdown2-lxc}
   dbg "Using GitHub repo for Debian templates: $GITHUB_DEBIAN_REPO"
   release_json=$(curl -s "https://api.github.com/repos/${GITHUB_DEBIAN_REPO}/releases/latest" || true)
       # Prefer browser_download_url field and look for exact variant match first
