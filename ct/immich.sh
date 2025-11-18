@@ -11,7 +11,7 @@ var_disk="${var_disk:-20}"
 var_cpu="${var_cpu:-4}"
 var_ram="${var_ram:-4096}"
 var_os="${var_os:-debian}"
-var_version="${var_version:-13}"
+var_version="${var_version:-12}"
 var_unprivileged="${var_unprivileged:-1}"
 
 header_info "$APP"
@@ -64,7 +64,7 @@ EOF
   STAGING_DIR=/opt/staging
   BASE_DIR=${STAGING_DIR}/base-images
   SOURCE_DIR=${STAGING_DIR}/image-source
-  cd /root
+  cd /root || exit
   if [[ -f ~/.intel_version ]]; then
     curl -fsSLO https://raw.githubusercontent.com/immich-app/immich/refs/heads/main/machine-learning/Dockerfile
     readarray -t INTEL_URLS < <(sed -n "/intel/p" ./Dockerfile | awk '{print $3}')
@@ -84,7 +84,7 @@ EOF
   fi
   if [[ -f ~/.immich_library_revisions ]]; then
     libraries=("libjxl" "libheif" "libraw" "imagemagick" "libvips")
-    cd "$BASE_DIR"
+    cd "$BASE_DIR" || exit
     msg_info "Checking for updates to custom image-processing libraries"
     $STD git pull
     for library in "${libraries[@]}"; do
@@ -150,7 +150,7 @@ EOF
     fetch_and_deploy_gh_release "immich" "immich-app/immich" "tarball" "v${RELEASE}" "$SRC_DIR"
 
     msg_info "Updating ${APP} web and microservices"
-    cd "$SRC_DIR"/server
+    cd "$SRC_DIR"/server || exit
     export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
     export CI=1
     corepack enable
@@ -165,7 +165,7 @@ EOF
     sed -i 's|^start|./start|' "$APP_DIR"/bin/immich-admin
 
     # openapi & web build
-    cd "$SRC_DIR"
+    cd "$SRC_DIR" || exit
     echo "packageImportMethod: hardlink" >>./pnpm-workspace.yaml
     $STD pnpm --filter @immich/sdk --filter immich-web --frozen-lockfile --force install
     unset SHARP_FORCE_GLOBAL_LIBVIPS
@@ -178,11 +178,11 @@ EOF
     $STD pnpm --filter @immich/sdk --filter @immich/cli --frozen-lockfile install
     $STD pnpm --filter @immich/sdk --filter @immich/cli build
     $STD pnpm --filter @immich/cli --prod --no-optional deploy "$APP_DIR"/cli
-    cd "$APP_DIR"
+    cd "$APP_DIR" || exit
     mv "$INSTALL_DIR"/start.sh "$APP_DIR"/bin
     msg_ok "Updated ${APP} web and microservices"
 
-    cd "$SRC_DIR"/machine-learning
+    cd "$SRC_DIR"/machine-learning || exit
     mkdir -p "$ML_DIR" && chown -R immich:immich "$ML_DIR"
     chown immich:immich ./uv.lock
     export VIRTUAL_ENV="${ML_DIR}"/ml-venv
@@ -196,14 +196,14 @@ EOF
       $STD sudo --preserve-env=VIRTUAL_ENV -nu immich uv sync --extra cpu --active -n -p python3.11 --managed-python
       msg_ok "Updated machine-learning"
     fi
-    cd "$SRC_DIR"
+    cd "$SRC_DIR" || exit
     cp -a machine-learning/{ann,immich_ml} "$ML_DIR"
     mv "$INSTALL_DIR"/ml_start.sh "$ML_DIR"
     if [[ -f ~/.openvino ]]; then
       sed -i "/intra_op/s/int = 0/int = os.cpu_count() or 0/" "$ML_DIR"/immich_ml/config.py
     fi
     ln -sf "$APP_DIR"/resources "$INSTALL_DIR"
-    cd "$APP_DIR"
+    cd "$APP_DIR" || exit
     grep -rl /usr/src | xargs -n1 sed -i "s|\/usr/src|$INSTALL_DIR|g"
     grep -rlE "'/build'" | xargs -n1 sed -i "s|'/build'|'$APP_DIR'|g"
     sed -i "s@\"/cache\"@\"$INSTALL_DIR/cache\"@g" "$ML_DIR"/immich_ml/config.py
@@ -233,13 +233,13 @@ function compile_libjxl() {
     msg_info "Recompiling libjxl"
     if [[ -d "$SOURCE" ]]; then rm -rf "$SOURCE"; fi
     $STD git clone https://github.com/libjxl/libjxl.git "$SOURCE"
-    cd "$SOURCE"
+    cd "$SOURCE" || exit
     $STD git reset --hard "$LIBJXL_REVISION"
     $STD git submodule update --init --recursive --depth 1 --recommend-shallow
     $STD git apply "$BASE_DIR"/server/sources/libjxl-patches/jpegli-empty-dht-marker.patch
     $STD git apply "$BASE_DIR"/server/sources/libjxl-patches/jpegli-icc-warning.patch
     mkdir build
-    cd build
+    cd build || exit
     $STD cmake \
       -DCMAKE_BUILD_TYPE=Release \
       -DBUILD_TESTING=OFF \
@@ -262,7 +262,7 @@ function compile_libjxl() {
     $STD cmake --install .
     ldconfig /usr/local/lib
     $STD make clean
-    cd "$STAGING_DIR"
+    cd "$STAGING_DIR" || exit
     rm -rf "$SOURCE"/{build,third_party}
     sed -i "s/libjxl: .*$/libjxl: $LIBJXL_REVISION/" ~/.immich_library_revisions
     msg_ok "Recompiled libjxl"
@@ -280,10 +280,10 @@ function compile_libheif() {
     msg_info "Recompiling libheif"
     if [[ -d "$SOURCE" ]]; then rm -rf "$SOURCE"; fi
     $STD git clone https://github.com/strukturag/libheif.git "$SOURCE"
-    cd "$SOURCE"
+    cd "$SOURCE" || exit
     $STD git reset --hard "$LIBHEIF_REVISION"
     mkdir build
-    cd build
+    cd build || exit
     $STD cmake --preset=release-noplugins \
       -DWITH_DAV1D=ON \
       -DENABLE_PARALLEL_TILE_DECODING=ON \
@@ -297,7 +297,7 @@ function compile_libheif() {
     $STD make install -j "$(nproc)"
     ldconfig /usr/local/lib
     $STD make clean
-    cd "$STAGING_DIR"
+    cd "$STAGING_DIR" || exit
     rm -rf "$SOURCE"/build
     sed -i "s/libheif: .*$/libheif: $LIBHEIF_REVISION/" ~/.immich_library_revisions
     msg_ok "Recompiled libheif"
@@ -311,7 +311,7 @@ function compile_libraw() {
     msg_info "Recompiling libraw"
     if [[ -d "$SOURCE" ]]; then rm -rf "$SOURCE"; fi
     $STD git clone https://github.com/libraw/libraw.git "$SOURCE"
-    cd "$SOURCE"
+    cd "$SOURCE" || exit
     $STD git reset --hard "$LIBRAW_REVISION"
     $STD autoreconf --install
     $STD ./configure
@@ -319,7 +319,7 @@ function compile_libraw() {
     $STD make install
     ldconfig /usr/local/lib
     $STD make clean
-    cd "$STAGING_DIR"
+    cd "$STAGING_DIR" || exit
     sed -i "s/libraw: .*$/libraw: $LIBRAW_REVISION/" ~/.immich_library_revisions
     msg_ok "Recompiled libraw"
   fi
@@ -333,14 +333,14 @@ function compile_imagemagick() {
     msg_info "Recompiling ImageMagick"
     if [[ -d "$SOURCE" ]]; then rm -rf "$SOURCE"; fi
     $STD git clone https://github.com/ImageMagick/ImageMagick.git "$SOURCE"
-    cd "$SOURCE"
+    cd "$SOURCE" || exit
     $STD git reset --hard "$IMAGEMAGICK_REVISION"
     $STD ./configure --with-modules CPPFLAGS="-DMAGICK_LIBRAW_VERSION_TAIL=202502"
     $STD make -j"$(nproc)"
     $STD make install
     ldconfig /usr/local/lib
     $STD make clean
-    cd "$STAGING_DIR"
+    cd "$STAGING_DIR" || exit
     sed -i "s/imagemagick: .*$/imagemagick: $IMAGEMAGICK_REVISION/" ~/.immich_library_revisions
     msg_ok "Recompiled ImageMagick"
   fi
@@ -353,13 +353,13 @@ function compile_libvips() {
     msg_info "Recompiling libvips"
     if [[ -d "$SOURCE" ]]; then rm -rf "$SOURCE"; fi
     $STD git clone https://github.com/libvips/libvips.git "$SOURCE"
-    cd "$SOURCE"
+    cd "$SOURCE" || exit
     $STD git reset --hard "$LIBVIPS_REVISION"
     $STD meson setup build --buildtype=release --libdir=lib -Dintrospection=disabled -Dtiff=disabled
-    cd build
+    cd build || exit
     $STD ninja install
     ldconfig /usr/local/lib
-    cd "$STAGING_DIR"
+    cd "$STAGING_DIR" || exit
     rm -rf "$SOURCE"/build
     sed -i "s/libvips: .*$/libvips: $LIBVIPS_REVISION/" ~/.immich_library_revisions
     msg_ok "Recompiled libvips"
