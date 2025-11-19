@@ -15,18 +15,19 @@ update_os
 
 setup_uv
 
+choose_pkg() {
+  local pkg
+  for pkg in "$@"; do
+    if apt-cache show "$pkg" 2>/dev/null | grep -q "^Package: $pkg$"; then
+      printf '%s' "$pkg"
+      return 0
+    fi
+  done
+  return 1
+}
+
 msg_info "Installing dependencies"
 $STD apt-get update
-# libio-compress-brotli-perl and libhwy1t64 only exist in newer Debian repos; fall back to
-# Bookworm variants when necessary so installs do not fail before testing repo is added.
-BROTLIPERL_PKG="libio-compress-brotli-perl"
-if ! apt-cache show "$BROTLIPERL_PKG" 2>/dev/null | grep -q "^Package: $BROTLIPERL_PKG$"; then
-  BROTLIPERL_PKG="libcompress-brotli-perl"
-fi
-HWY_RUNTIME_PKG="libhwy1t64"
-if ! apt-cache show "$HWY_RUNTIME_PKG" 2>/dev/null | grep -q "^Package: $HWY_RUNTIME_PKG$"; then
-  HWY_RUNTIME_PKG="libhwy1"
-fi
 $STD apt-get install --no-install-recommends -y \
   git \
   redis \
@@ -66,11 +67,9 @@ $STD apt-get install --no-install-recommends -y \
   ocl-icd-libopencl1 \
   tini \
   zlib1g \
-  "${BROTLIPERL_PKG}" \
   libwebp7 \
   libwebpdemux2 \
   libwebpmux3 \
-  "${HWY_RUNTIME_PKG}" \
   libdav1d-dev \
   libhwy-dev \
   libwebp-dev \
@@ -116,6 +115,22 @@ msg_ok "Configured Debian Testing repo"
 msg_info "Installing libmimalloc3"
 $STD apt-get install -t testing --no-install-recommends -yqq libmimalloc3
 msg_ok "Installed libmimalloc3"
+
+msg_info "Installing Brotli Perl and Highway runtime libs"
+if BROTLIPERL_PKG=$(choose_pkg libio-compress-brotli-perl libcompress-brotli-perl); then
+  :
+else
+  msg_error "Unable to locate a Brotli Perl package (libio-compress-brotli-perl/libcompress-brotli-perl)"
+  exit 1
+fi
+if HWY_RUNTIME_PKG=$(choose_pkg libhwy1t64 libhwy1); then
+  :
+else
+  msg_error "Unable to locate a libhwy runtime package (libhwy1t64/libhwy1)"
+  exit 1
+fi
+$STD apt-get install --no-install-recommends -y "$BROTLIPERL_PKG" "$HWY_RUNTIME_PKG"
+msg_ok "Installed Brotli Perl and Highway runtime libs"
 
 PNPM_VERSION="$(curl -fsSL "https://raw.githubusercontent.com/immich-app/immich/refs/heads/main/package.json" | jq -r '.packageManager | split("@")[1]')"
 NODE_VERSION="24" NODE_MODULE="pnpm@${PNPM_VERSION}" setup_nodejs

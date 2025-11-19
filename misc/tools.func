@@ -58,9 +58,9 @@ cleanup_tool_keyrings() {
   local tool_patterns=("$@")
 
   for pattern in "${tool_patterns[@]}"; do
-    rm -f /usr/share/keyrings/${pattern}*.gpg \
-      /etc/apt/keyrings/${pattern}*.gpg \
-      /etc/apt/trusted.gpg.d/${pattern}*.gpg 2>/dev/null || true
+    rm -f /usr/share/keyrings/"${pattern}"*.gpg \
+      /etc/apt/keyrings/"${pattern}"*.gpg \
+      /etc/apt/trusted.gpg.d/"${pattern}"*.gpg 2>/dev/null || true
   done
 }
 
@@ -504,7 +504,7 @@ manage_tool_repository() {
     repo_component="main"
     [[ "$distro_id" == "ubuntu" ]] && repo_component="multiverse"
 
-    cat <<EOF >/etc/apt/sources.list.d/mongodb-org-${version}.sources
+    cat <<EOF >/etc/apt/sources.list.d/mongodb-org-"${version}".sources
 Types: deb
 URIs: ${repo_url}
 Suites: ${suite}/mongodb-org/${version}
@@ -875,7 +875,7 @@ download_file() {
   local curl_opts=(-fsSL)
   [[ "$show_progress" == "true" ]] && curl_opts=(-fL#)
 
-  for attempt in $(seq 1 $max_retries); do
+  for attempt in $(seq 1 "$max_retries"); do
     if curl "${curl_opts[@]}" -o "$output" "$url"; then
       return 0
     fi
@@ -1238,7 +1238,7 @@ setup_deb822_repo() {
     echo "Components: $component"
     [[ -n "$architectures" ]] && echo "Architectures: $architectures"
     echo "Signed-By: /etc/apt/keyrings/${name}.gpg"
-  } >/etc/apt/sources.list.d/${name}.sources
+  } >/etc/apt/sources.list.d/"${name}".sources
 
   $STD apt update
 }
@@ -1682,7 +1682,7 @@ function fetch_and_deploy_gh_release() {
   local max_retries=3 retry_delay=2 attempt=1 success=false resp http_code
 
   while ((attempt <= max_retries)); do
-    resp=$(curl $api_timeout -fsSL -w "%{http_code}" -o /tmp/gh_rel.json "${header[@]}" "$api_url") && success=true && break
+    resp=$(curl "$api_timeout" -fsSL -w "%{http_code}" -o /tmp/gh_rel.json "${header[@]}" "$api_url") && success=true && break
     sleep "$retry_delay"
     ((attempt++))
   done
@@ -1723,7 +1723,7 @@ function fetch_and_deploy_gh_release() {
     [[ -z "$url" ]] && url="https://github.com/$repo/archive/refs/tags/v$version.tar.gz"
     filename="${app_lc}-${version}.tar.gz"
 
-    curl $download_timeout -fsSL -o "$tmpdir/$filename" "$url" || {
+    curl "$download_timeout" -fsSL -o "$tmpdir/$filename" "$url" || {
       msg_error "Download failed: $url"
       rm -rf "$tmpdir"
       return 1
@@ -1790,7 +1790,7 @@ function fetch_and_deploy_gh_release() {
     fi
 
     filename="${url_match##*/}"
-    curl $download_timeout -fsSL -o "$tmpdir/$filename" "$url_match" || {
+    curl "$download_timeout" -fsSL -o "$tmpdir/$filename" "$url_match" || {
       msg_error "Download failed: $url_match"
       rm -rf "$tmpdir"
       return 1
@@ -1833,7 +1833,7 @@ function fetch_and_deploy_gh_release() {
     }
 
     filename="${asset_url##*/}"
-    curl $download_timeout -fsSL -o "$tmpdir/$filename" "$asset_url" || {
+    curl "$download_timeout" -fsSL -o "$tmpdir/$filename" "$asset_url" || {
       msg_error "Download failed: $asset_url"
       rm -rf "$tmpdir"
       return 1
@@ -1936,7 +1936,7 @@ function fetch_and_deploy_gh_release() {
     local target_file="$app"
     [[ "$use_filename" == "true" ]] && target_file="$filename"
 
-    curl $download_timeout -fsSL -o "$target/$target_file" "$asset_url" || {
+    curl "$download_timeout" -fsSL -o "$target/$target_file" "$asset_url" || {
       msg_error "Download failed: $asset_url"
       rm -rf "$tmpdir"
       return 1
@@ -3605,7 +3605,7 @@ function setup_php() {
   fi
 
   # Install PHP packages with retry logic
-  install_packages_with_retry $MODULE_LIST || {
+  install_packages_with_retry "$MODULE_LIST" || {
     msg_error "Failed to install PHP packages"
     return 1
   }
@@ -3639,8 +3639,8 @@ function setup_php() {
   # Enable and restart PHP-FPM if requested
   if [[ "$PHP_FPM" == "YES" ]]; then
     if systemctl list-unit-files | grep -q "php${PHP_VERSION}-fpm.service"; then
-      $STD systemctl enable php${PHP_VERSION}-fpm
-      safe_service_restart php${PHP_VERSION}-fpm
+      $STD systemctl enable php"${PHP_VERSION}"-fpm
+      safe_service_restart php"${PHP_VERSION}"-fpm
     fi
   fi
 
@@ -3696,7 +3696,7 @@ function setup_postgresql() {
   if [[ -n "$CURRENT_PG_VERSION" ]]; then
     msg_info "Upgrade PostgreSQL from $CURRENT_PG_VERSION to $PG_VERSION"
     msg_info "Creating backup of PostgreSQL $CURRENT_PG_VERSION databases..."
-    $STD runuser -u postgres -- pg_dumpall >/var/lib/postgresql/backup_$(date +%F)_v${CURRENT_PG_VERSION}.sql || {
+    $STD runuser -u postgres -- pg_dumpall >/var/lib/postgresql/backup_$(date +%F)_v"${CURRENT_PG_VERSION}".sql || {
       msg_error "Failed to backup PostgreSQL databases"
       return 1
     }
@@ -3777,7 +3777,7 @@ function setup_postgresql() {
   # Restore database backup if we upgraded from previous version
   if [[ -n "$CURRENT_PG_VERSION" ]]; then
     msg_info "Restoring PostgreSQL databases from backup..."
-    $STD runuser -u postgres -- psql </var/lib/postgresql/backup_$(date +%F)_v${CURRENT_PG_VERSION}.sql 2>/dev/null || {
+    $STD runuser -u postgres -- psql </var/lib/postgresql/backup_$(date +%F)_v"${CURRENT_PG_VERSION}".sql 2>/dev/null || {
       msg_warn "Failed to restore database backup - this may be expected for major version upgrades"
     }
   fi
@@ -4333,7 +4333,8 @@ function setup_uv() {
     msg_ok "uvx wrapper installed"
   fi
 
-  # Optional: Generate shell completions
+  # Optional: Generate shell completions (ensure target directories exist)
+  mkdir -p /etc/bash_completion.d /usr/share/zsh/site-functions
   $STD uv generate-shell-completion bash >/etc/bash_completion.d/uv 2>/dev/null || true
   $STD uv generate-shell-completion zsh >/usr/share/zsh/site-functions/_uv 2>/dev/null || true
 
