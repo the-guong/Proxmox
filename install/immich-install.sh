@@ -17,6 +17,16 @@ setup_uv
 
 msg_info "Installing dependencies"
 $STD apt-get update
+# libio-compress-brotli-perl and libhwy1t64 only exist in newer Debian repos; fall back to
+# Bookworm variants when necessary so installs do not fail before testing repo is added.
+BROTLIPERL_PKG="libio-compress-brotli-perl"
+if ! apt-cache show "$BROTLIPERL_PKG" 2>/dev/null | grep -q "^Package: $BROTLIPERL_PKG$"; then
+  BROTLIPERL_PKG="libcompress-brotli-perl"
+fi
+HWY_RUNTIME_PKG="libhwy1t64"
+if ! apt-cache show "$HWY_RUNTIME_PKG" 2>/dev/null | grep -q "^Package: $HWY_RUNTIME_PKG$"; then
+  HWY_RUNTIME_PKG="libhwy1"
+fi
 $STD apt-get install --no-install-recommends -y \
   git \
   redis \
@@ -56,11 +66,11 @@ $STD apt-get install --no-install-recommends -y \
   ocl-icd-libopencl1 \
   tini \
   zlib1g \
-  libio-compress-brotli-perl \
+  "${BROTLIPERL_PKG}" \
   libwebp7 \
   libwebpdemux2 \
   libwebpmux3 \
-  libhwy1t64 \
+  "${HWY_RUNTIME_PKG}" \
   libdav1d-dev \
   libhwy-dev \
   libwebp-dev \
@@ -145,19 +155,19 @@ $STD git clone -b main "$BASE_REPO" "$BASE_DIR"
 mkdir -p "$SOURCE_DIR"
 
 msg_info "(1/5) Compiling libjxl"
-cd "$STAGING_DIR"
+cd "$STAGING_DIR" || exit
 SOURCE=${SOURCE_DIR}/libjxl
 JPEGLI_LIBJPEG_LIBRARY_SOVERSION="62"
 JPEGLI_LIBJPEG_LIBRARY_VERSION="62.3.0"
 : "${LIBJXL_REVISION:=$(jq -cr '.revision' $BASE_DIR/server/sources/libjxl.json)}"
 $STD git clone https://github.com/libjxl/libjxl.git "$SOURCE"
-cd "$SOURCE"
+cd "$SOURCE" || exit
 $STD git reset --hard "$LIBJXL_REVISION"
 $STD git submodule update --init --recursive --depth 1 --recommend-shallow
 $STD git apply "$BASE_DIR"/server/sources/libjxl-patches/jpegli-empty-dht-marker.patch
 $STD git apply "$BASE_DIR"/server/sources/libjxl-patches/jpegli-icc-warning.patch
 mkdir build
-cd build
+cd build || exit
 $STD cmake \
   -DCMAKE_BUILD_TYPE=Release \
   -DBUILD_TESTING=OFF \
@@ -180,7 +190,7 @@ $STD cmake --build . -- -j"$(nproc)"
 $STD cmake --install .
 ldconfig /usr/local/lib
 $STD make clean
-cd "$STAGING_DIR"
+cd "$STAGING_DIR" || exit
 rm -rf "$SOURCE"/{build,third_party}
 msg_ok "(1/5) Compiled libjxl"
 
@@ -188,10 +198,10 @@ msg_info "(2/5) Compiling libheif"
 SOURCE=${SOURCE_DIR}/libheif
 : "${LIBHEIF_REVISION:=$(jq -cr '.revision' $BASE_DIR/server/sources/libheif.json)}"
 $STD git clone https://github.com/strukturag/libheif.git "$SOURCE"
-cd "$SOURCE"
+cd "$SOURCE" || exit
 $STD git reset --hard "$LIBHEIF_REVISION"
 mkdir build
-cd build
+cd build || exit
 $STD cmake --preset=release-noplugins \
   -DWITH_DAV1D=ON \
   -DENABLE_PARALLEL_TILE_DECODING=ON \
@@ -205,7 +215,7 @@ $STD cmake --preset=release-noplugins \
 $STD make install -j "$(nproc)"
 ldconfig /usr/local/lib
 $STD make clean
-cd "$STAGING_DIR"
+cd "$STAGING_DIR" || exit
 rm -rf "$SOURCE"/build
 msg_ok "(2/5) Compiled libheif"
 
@@ -213,7 +223,7 @@ msg_info "(3/5) Compiling libraw"
 SOURCE=${SOURCE_DIR}/libraw
 : "${LIBRAW_REVISION:=$(jq -cr '.revision' $BASE_DIR/server/sources/libraw.json)}"
 $STD git clone https://github.com/libraw/libraw.git "$SOURCE"
-cd "$SOURCE"
+cd "$SOURCE" || exit
 $STD git reset --hard "$LIBRAW_REVISION"
 $STD autoreconf --install
 $STD ./configure
@@ -221,34 +231,34 @@ $STD make -j"$(nproc)"
 $STD make install
 ldconfig /usr/local/lib
 $STD make clean
-cd "$STAGING_DIR"
+cd "$STAGING_DIR" || exit
 msg_ok "(3/5) Compiled libraw"
 
 msg_info "(4/5) Compiling imagemagick"
 SOURCE=$SOURCE_DIR/imagemagick
 : "${IMAGEMAGICK_REVISION:=$(jq -cr '.revision' $BASE_DIR/server/sources/imagemagick.json)}"
 $STD git clone https://github.com/ImageMagick/ImageMagick.git "$SOURCE"
-cd "$SOURCE"
+cd "$SOURCE" || exit
 $STD git reset --hard "$IMAGEMAGICK_REVISION"
 $STD ./configure --with-modules CPPFLAGS="-DMAGICK_LIBRAW_VERSION_TAIL=202502"
 $STD make -j"$(nproc)"
 $STD make install
 ldconfig /usr/local/lib
 $STD make clean
-cd "$STAGING_DIR"
+cd "$STAGING_DIR" || exit
 msg_ok "(4/5) Compiled imagemagick"
 
 msg_info "(5/5) Compiling libvips"
 SOURCE=$SOURCE_DIR/libvips
 : "${LIBVIPS_REVISION:=$(jq -cr '.revision' $BASE_DIR/server/sources/libvips.json)}"
 $STD git clone https://github.com/libvips/libvips.git "$SOURCE"
-cd "$SOURCE"
+cd "$SOURCE" || exit
 $STD git reset --hard "$LIBVIPS_REVISION"
 $STD meson setup build --buildtype=release --libdir=lib -Dintrospection=disabled -Dtiff=disabled
-cd build
+cd build || exit
 $STD ninja install
 ldconfig /usr/local/lib
-cd "$STAGING_DIR"
+cd "$STAGING_DIR" || exit
 rm -rf "$SOURCE"/build
 msg_ok "(5/5) Compiled libvips"
 {
@@ -273,7 +283,7 @@ fetch_and_deploy_gh_release "immich" "immich-app/immich" "tarball" "v2.2.3" "$SR
 
 msg_info "Installing ${APPLICATION} (patience)"
 
-cd "$SRC_DIR"/server
+cd "$SRC_DIR"/server || exit
 export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 export CI=1
 corepack enable
@@ -288,7 +298,7 @@ cp "$APP_DIR"/package.json "$APP_DIR"/bin
 sed -i 's|^start|./start|' "$APP_DIR"/bin/immich-admin
 
 # openapi & web build
-cd "$SRC_DIR"
+cd "$SRC_DIR" || exit
 echo "packageImportMethod: hardlink" >>./pnpm-workspace.yaml
 $STD pnpm --filter @immich/sdk --filter immich-web --frozen-lockfile --force install
 unset SHARP_FORCE_GLOBAL_LIBVIPS
@@ -303,7 +313,7 @@ $STD pnpm --filter @immich/sdk --filter @immich/cli build
 $STD pnpm --filter @immich/cli --prod --no-optional deploy "$APP_DIR"/cli
 msg_ok "Installed Immich Server and Web Components"
 
-cd "$SRC_DIR"/machine-learning
+cd "$SRC_DIR"/machine-learning || exit
 $STD useradd -U -s /usr/sbin/nologin -r -M -d "$INSTALL_DIR" immich
 mkdir -p "$ML_DIR" && chown -R immich:immich "$INSTALL_DIR"
 export VIRTUAL_ENV="${ML_DIR}/ml-venv"
@@ -317,14 +327,14 @@ else
   $STD sudo --preserve-env=VIRTUAL_ENV -nu immich uv sync --extra cpu --active -n -p python3.11 --managed-python
   msg_ok "Installed machine-learning"
 fi
-cd "$SRC_DIR"
+cd "$SRC_DIR" || exit
 cp -a machine-learning/{ann,immich_ml} "$ML_DIR"
 if [[ -f ~/.openvino ]]; then
   sed -i "/intra_op/s/int = 0/int = os.cpu_count() or 0/" "$ML_DIR"/immich_ml/config.py
 fi
 ln -sf "$APP_DIR"/resources "$INSTALL_DIR"
 
-cd "$APP_DIR"
+cd "$APP_DIR" || exit
 grep -rl /usr/src | xargs -n1 sed -i "s|\/usr/src|$INSTALL_DIR|g"
 grep -rlE "'/build'" | xargs -n1 sed -i "s|'/build'|'$APP_DIR'|g"
 sed -i "s@\"/cache\"@\"$INSTALL_DIR/cache\"@g" "$ML_DIR"/immich_ml/config.py
@@ -332,7 +342,7 @@ ln -s "$UPLOAD_DIR" "$APP_DIR"/upload
 ln -s "$UPLOAD_DIR" "$ML_DIR"/upload
 
 msg_info "Installing GeoNames data"
-cd "$GEO_DIR"
+cd "$GEO_DIR" || exit
 curl -fsSLZ -O "https://download.geonames.org/export/dump/admin1CodesASCII.txt" \
   -O "https://download.geonames.org/export/dump/admin2Codes.txt" \
   -O "https://download.geonames.org/export/dump/cities500.zip" \
@@ -340,7 +350,7 @@ curl -fsSLZ -O "https://download.geonames.org/export/dump/admin1CodesASCII.txt" 
 unzip -q cities500.zip
 date --iso-8601=seconds | tr -d "\n" >geodata-date.txt
 rm cities500.zip
-cd "$INSTALL_DIR"
+cd "$INSTALL_DIR" || exit
 ln -s "$GEO_DIR" "$APP_DIR"
 msg_ok "Installed GeoNames data"
 
